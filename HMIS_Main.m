@@ -6,7 +6,7 @@
 % Please inpute addpath( genpath('Utilities') ) in command window first.
 % I is the noiseless image, which is 256-level gray image
 % nSig is the noise standard deviation.
-
+% this function here is just a interface for testing.
 function    dim  = HMIS_Main( I, nSig)
 
 nim    =   Add_noise( I, nSig );
