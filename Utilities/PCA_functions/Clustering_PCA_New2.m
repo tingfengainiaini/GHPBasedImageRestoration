@@ -1,0 +1,221 @@
+function  [PCA_D, cls_idx, s_idx, seg, D0]   =  Clustering_PCA_New2( im, par, win, cls_num )
+
+b         =   win;
+psf       =   fspecial('gauss', 9, par.sigma);
+[Y, X]    =   Get_patches(im, b, psf, 1, 1);
+for i=2:2:6  % 1:1:6
+   [Ys, Xs]   =   Get_patches(im, b, psf, 1, 0.8^i);
+   Y          =   [Y Ys];
+   X          =   [X Xs];
+end
+
+% Compute PCA for the smooth patches
+delta       =   sqrt(par.nSig^2+25);
+v           =   sqrt( mean( Y.^2 ) );
+[a, i0]     =   find( v<delta );
+D0          =   getpca( X(:, i0), par.nSig );
+set         =   1:size(Y, 2);
+set(i0)     =   [];
+Y           =   Y(:,set);
+X           =   X(:,set);
+
+% Clustering
+b2        =   size(Y, 1);
+L         =   size(Y, 2);
+itn       =   13;
+m_num     =   250;
+rand('seed',0);
+
+
+% % time of matlab implementation 
+% time0       =   clock;
+% % opts = statset('Display','final');
+% % opts = statset('MaxIter', itn);
+% opts = statset('Display', 'iter', 'MaxIter', itn);
+% [cidx, ctrs] = kmeans(Y', cls_num,  'Options',opts);
+% disp(sprintf('Total elapsed time of matlab k-means   = %f sec\n', (etime(clock,time0)) ));
+
+
+
+% time of my own implementation 
+time0       =   clock;
+
+P         =   randperm(L);
+P2        =   P(1:cls_num);
+vec       =   Y(:,P2(1:end));
+T         =   20000;
+
+Y=Y';
+vec=vec';
+
+for i = 1 : itn
+    
+    mse       =  0;
+%     cnt       =  zeros(1, cls_num);
+%     cls_idx   =  zeros(L, 1);
+
+for j=1:13
+
+v_dis = distfun(Y, vec, 'sqeuclidean', j);
+end
+   
+disp(sprintf('Total elapsed time of my own k-means   = %f sec\n', (etime(clock,time0)) ));
+
+    v_dis    =   zeros(cls_num, L);
+    for  k = 1 : cls_num
+        v_dis(k, :) = (Y(1, :) - vec(1, k)).^2;
+        for c = 2:b2
+            v_dis(k, :) =  v_dis(k, :) + (Y(c, :) - vec(c, k)).^2;
+        end
+    end            
+    [val cls_idx]         =   min(v_dis);
+    cls_idx               =   cls_idx';
+    mse               =   mse + sum( val );    
+    
+    
+    [s_idx, seg]   =  Proc_cls_idx( cls_idx );
+    for  k  =  1 : length(seg)-1
+        idx    =   s_idx(seg(k)+1:seg(k+1));    
+        cls    =   cls_idx(idx(1));    
+        vec(:,cls)    =   mean(Y(:, idx), 2);
+%         cnt(cls)      =   length(idx);
+    end          
+    
+%     if (i==4 || i==itn-2)
+%         [val ind]  =  min( cnt );       % Remove these classes with little samples        
+%         while (val<m_num) && (cls_num>=40)
+%             vec(:,ind)    =  [];
+%             cls_num       =  cls_num - 1;
+%             cnt(ind)      =  [];
+% 
+%             [val  ind]    =  min(cnt);
+%         end        
+%     end
+    
+    mse   =  mse/L/b2;
+    disp( sprintf('clustering %d th loop, mse = %f', i, mse) );    
+end
+
+disp(sprintf('Total elapsed time of my own k-means   = %f sec\n', (etime(clock,time0)) ));
+
+
+
+
+% Compute the PCA basis for eacl cluster
+[s_idx, seg]   =  Proc_cls_idx( cls_idx );
+PCA_D          =  zeros(b^4, cls_num);
+for  i  =  1 : length(seg)-1
+   
+    idx    =   s_idx(seg(i)+1:seg(i+1));    
+    cls    =   cls_idx(idx(1));    
+    X1     =   X(:, idx);
+
+    [P, mx]   =  getpca(X1, par.nSig);    
+    PCA_D(:,cls)    =  P(:);
+end
+
+
+% Assign each patch a PCA dictionary
+[Y, X]      =   Get_patches(im, b, psf, par.step, 1);
+cls_idx     =   zeros(size(X, 2), 1);
+
+v           =   sqrt( mean( Y.^2 ) );
+[a, ind]    =   find( v<delta );
+set         =   1:size(X, 2);
+set(ind)    =   [];
+L           =   size(set,2);
+
+for j = 1 : L
+    cb    =  repmat(Y(:, set(j)), 1, cls_num);
+    dis   =  sum((vec-cb).^2);
+    [val ind]      =   min( dis );
+    cls_idx( set(j) )   =   ind;
+end
+[s_idx, seg]   =  Proc_cls_idx( cls_idx );
+
+
+%--------------------------------------------------
+function  [Py  Px]  =  Get_patches( im, b, psf, s, scale )
+im        =  imresize( im, scale, 'bilinear' );
+
+[h w ch]  =  size(im);
+ws        =  floor( size(psf,1)/2 );
+
+if  ch==3
+    lrim      =  rgb2ycbcr( uint8(im) );
+    im        =  double( lrim(:,:,1));    
+end
+
+lp_im     =  conv2( psf, im );
+lp_im     =  lp_im(ws+1:h+ws, ws+1:w+ws);
+hp_im     =  im - lp_im;
+
+N         =  h-b+1;
+M         =  w-b+1;
+% s         =  1;
+r         =  [1:s:N];
+r         =  [r r(end)+1:N];
+c         =  [1:s:M];
+c         =  [c c(end)+1:M];
+L         =  length(r)*length(c);
+Py        =  zeros(b*b, L);% , 'single');
+Px        =  zeros(b*b, L);%, 'single');
+
+k    =  0;
+for i  = 1:b
+    for j  = 1:b
+        k       =  k+1;
+        blk     =  hp_im(r-1+i,c-1+j);
+        Py(k,:) =  blk(:)';
+        
+        blk     =  im(r-1+i,c-1+j);
+        Px(k,:) =  blk(:)';        
+    end
+end
+
+
+function D = distfun(X, C, dist, iter)
+%DISTFUN Calculate point to cluster centroid distances.
+[n,p] = size(X);
+D = zeros(n,size(C,1));
+nclusts = size(C,1);
+
+switch dist
+case 'sqeuclidean'
+    for i = 1:nclusts
+        D(:,i) = (X(:,1) - C(i,1)).^2;
+        for j = 2:p
+            D(:,i) = D(:,i) + (X(:,j) - C(i,j)).^2;
+        end
+        % D(:,i) = sum((X - C(repmat(i,n,1),:)).^2, 2);
+    end
+case 'cityblock'
+    for i = 1:nclusts
+        D(:,i) = abs(X(:,1) - C(i,1));
+        for j = 2:p
+            D(:,i) = D(:,i) + abs(X(:,j) - C(i,j));
+        end
+        % D(:,i) = sum(abs(X - C(repmat(i,n,1),:)), 2);
+    end
+case {'cosine','correlation'}
+    % The points are normalized, centroids are not, so normalize them
+    normC = sqrt(sum(C.^2, 2));
+    if any(normC < eps(class(normC))) % small relative to unit-length data points
+        error('stats:kmeans:ZeroCentroid', ...
+              'Zero cluster centroid created at iteration %d.',iter);
+    end
+    
+    for i = 1:nclusts
+        D(:,i) = max(1 - X * (C(i,:)./normC(i))', 0);
+    end
+case 'hamming'
+    for i = 1:nclusts
+        D(:,i) = abs(X(:,1) - C(i,1));
+        for j = 2:p
+            D(:,i) = D(:,i) + abs(X(:,j) - C(i,j));
+        end
+        D(:,i) = D(:,i) / p;
+        % D(:,i) = sum(abs(X - C(repmat(i,n,1),:)), 2) / p;
+    end
+end
+
