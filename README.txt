@@ -1,4 +1,9 @@
-This code is for our CVPR2013 paper: 
+
+
+This code is for image restoration based on GHP method.
+
+
+This code is from the CVPR2013 paper: 
 
 Wangmeng Zuo, Lei Zhang, Chunwei Song, David Zhang, "Texture Enhanced Image Denoising via Gradient Histogram Preservation," in CVPR2013.
 
